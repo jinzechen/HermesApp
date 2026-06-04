@@ -1,0 +1,93 @@
+name: Build APK
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        fetch-depth: 0
+    
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: "17"
+        distribution: "temurin"
+    
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+    
+    - name: Install NDK
+      run: |
+        sdkmanager "ndk;27.0.12077973"
+        echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
+    
+    - name: Install CMake
+      run: |
+        sdkmanager "cmake;3.22.1"
+    
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+    
+    - name: Build release APK
+      run: ./gradlew assembleRelease --no-daemon
+      env:
+        ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
+    
+    - name: Build nightly APK
+      run: ./gradlew assembleNightly --no-daemon
+      env:
+        ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
+    
+    - name: Upload Release APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-release
+        path: app/build/outputs/apk/release/*.apk
+    
+    - name: Upload Nightly APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-nightly
+        path: app/build/outputs/apk/nightly/*.apk
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, "refs/tags/v")
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Download Release APK
+      uses: actions/download-artifact@v4
+      with:
+        name: app-release
+        path: ./release-apk
+    
+    - name: Download Nightly APK
+      uses: actions/download-artifact@v4
+      with:
+        name: app-nightly
+        path: ./nightly-apk
+    
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          ./release-apk/*.apk
+          ./nightly-apk/*.apk
+        generate_release_notes: true
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
